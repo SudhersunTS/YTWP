@@ -380,7 +380,12 @@ function subscribeRealtime() {
   channel.on('broadcast', { event: 'pause' }, ({ payload }) => {
     lockSync(1500);
     if (!playerUnlocked) { pendingPause = payload.time; pendingPlay = null; }
-    else doRemote(() => { player.seekTo(payload.time, true); player.pauseVideo(); });
+    else {
+      remoteAction = true;
+      player.seekTo(payload.time, true);
+      player.pauseVideo();
+      setTimeout(() => { remoteAction = false; lastBroadcastTime = Date.now(); }, 2000);
+    }
   });
 
   channel.on('broadcast', { event: 'seek' }, ({ payload }) => {

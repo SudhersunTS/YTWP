@@ -370,8 +370,11 @@ function subscribeRealtime() {
   channel.on('broadcast', { event: 'play' }, ({ payload }) => {
     pendingPause = null;
     lockSync(1500);
-    if (!playerUnlocked) { pendingPlay = { time: payload.time }; showTapOverlay('▶ Tap to Play'); }
-    else waitForPlayer(() => doRemote(() => { player.seekTo(payload.time, true); player.playVideo(); }));
+    if (!playerUnlocked) { pendingPlay = { time: payload.time, videoId: payload.videoId }; showTapOverlay('▶ Tap to Play'); }
+    else waitForPlayer(() => doRemote(() => {
+      if (payload.videoId) player.loadVideoById({ videoId: payload.videoId, startSeconds: payload.time });
+      else { player.seekTo(payload.time, true); player.playVideo(); }
+    }));
   });
 
   channel.on('broadcast', { event: 'pause' }, ({ payload }) => {
@@ -538,10 +541,11 @@ function onPlayerStateChange(event) {
   lastBroadcastTime = now;
   const time = player.getCurrentTime();
   if (event.data === YT.PlayerState.PLAYING) {
-    broadcast('play', { time });
+    const vid = cachedPlaylist[cachedIndex]?.videoId || '';
+    broadcast('play', { time, videoId: vid });
     hideSuggestions();
     startPosSave();
-    saveRoomState(cachedPlaylist[cachedIndex]?.videoId || '', time, true, cachedIndex);
+    saveRoomState(vid, time, true, cachedIndex);
   }
   if (event.data === YT.PlayerState.PAUSED) {
     broadcast('pause', { time, username });

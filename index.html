@@ -376,11 +376,8 @@ function subscribeRealtime() {
 
   channel.on('broadcast', { event: 'pause' }, ({ payload }) => {
     lockSync(1500);
-    pendingPause = payload.time;
-    const overlay = document.getElementById('tap-overlay');
-    overlay.innerHTML = `<span>⏸ Paused</span><small>by ${payload.username || 'someone'} — tap to sync</small>`;
-    overlay.classList.remove('hidden');
-    if (playerUnlocked) doRemote(() => { player.seekTo(payload.time, true); player.pauseVideo(); });
+    if (!playerUnlocked) { pendingPause = payload.time; pendingPlay = null; }
+    else doRemote(() => { player.seekTo(payload.time, true); player.pauseVideo(); });
   });
 
   channel.on('broadcast', { event: 'seek' }, ({ payload }) => {
@@ -391,7 +388,8 @@ function subscribeRealtime() {
 
   channel.on('broadcast', { event: 'video-change' }, ({ payload }) => {
     lockSync(2000);
-    waitForPlayer(() => doRemote(() => player.loadVideoById(payload.videoId)));
+    if (!playerUnlocked) { pendingPlay = { videoId: payload.videoId, time: 0 }; pendingPause = null; showTapOverlay('▶ Tap to Play'); }
+    else waitForPlayer(() => doRemote(() => player.loadVideoById(payload.videoId)));
   });
 
   channel.on('broadcast', { event: 'chat' }, ({ payload }) => {

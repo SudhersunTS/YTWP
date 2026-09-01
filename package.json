@@ -1,0 +1,10 @@
+{
+  "name": "youtube-watch-party",
+  "version": "1.0.0",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "bcryptjs": "^3.0.3",
+    "jsonwebtoken": "^9.0.3"
+  }
+}

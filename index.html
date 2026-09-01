@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Watch Party</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root { --bg:#0f0f0f;--bg2:#1a1a1a;--bg3:#2a2a2a;--bg4:#333;--text:#fff;--text2:#aaa;--border:#555;--chat-input-bg:#111;--chat-input-border:#2a2a2a; }
+body.light { --bg:#f0f0f0;--bg2:#ffffff;--bg3:#e0e0e0;--bg4:#d0d0d0;--text:#111;--text2:#555;--border:#bbb;--chat-input-bg:#fff;--chat-input-border:#ccc; }
+body { font-family:Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:background 0.2s,color 0.2s; }
+.screen { display:flex;flex-direction:column;gap:12px;width:320px;max-width:calc(100vw - 32px); }
+.screen h1 { text-align:center;color:#ff0000;margin-bottom:4px; }
+.screen input { padding:10px;border-radius:6px;border:1px solid var(--border);font-size:16px;background:var(--bg3);color:var(--text); }
+.screen button { padding:12px;background:#ff0000;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:16px; }
+.screen button:hover { background:#cc0000; }
+.screen .link { text-align:center;font-size:14px;color:#aaa;cursor:pointer; }
+.screen .link span { color:#ff6666;text-decoration:underline; }
+.error-msg { color:#ff4444;font-size:13px;text-align:center;min-height:18px; }
+#toast-container { position:fixed;top:20px;right:12px;left:12px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none; }
+.toast { background:#222;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;transform:translateX(40px);transition:all 0.3s;pointer-events:none;border-left:3px solid #ff0000;max-width:260px; }
+.toast.show { opacity:1;transform:translateX(0); }
+.toast.success { border-color:#22c55e; }
+.toast.error { border-color:#ef4444; }
+.toast.info { border-color:#3b82f6; }
+.spinner { display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:#ff0000;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:6px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#scroll-btn { display:none;position:absolute;bottom:4px;right:10px;background:#ff0000;color:#fff;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:14px;z-index:10;align-items:center;justify-content:center; }
+#scroll-btn.visible { display:flex; }
+#chat-wrapper { position:relative; }
+#player-toolbar { display:flex;align-items:center;gap:8px; }
+#now-playing { flex:1;font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+#sync-btn { padding:6px 12px;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap; }
+#sync-btn:hover { border-color:#ff0000;color:#ff0000; }
+#theme-btn { background:none;border:1px solid var(--border);color:var(--text2);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px; }
+#theme-btn:hover { color:var(--text);border-color:var(--text); }
+#app { display:none;width:100%;max-width:1400px;padding:12px;gap:12px;flex-direction:row;align-items:flex-start; }
+#left { flex:1;display:flex;flex-direction:column;gap:10px;min-width:0; }
+#player-wrapper { width:100%;aspect-ratio:16/9;background:#000;position:relative;border-radius:8px;overflow:hidden; }
+#player-wrapper iframe { width:100%;height:100%; }
+#yt-logo-block { position:absolute;bottom:0;left:0;width:120px;height:40px;z-index:5;cursor:default; }
+#yt-title-block { position:absolute;top:0;left:0;width:70%;height:50px;z-index:5;cursor:default; }
+#tap-overlay { display:flex;position:absolute;inset:0;background:rgba(0,0,0,0.85);color:#fff;font-size:22px;align-items:center;justify-content:center;cursor:pointer;z-index:10;flex-direction:column;gap:8px; }
+#tap-overlay.hidden { display:none; }
+#tap-overlay small { font-size:13px;color:#aaa; }
+#suggestions-overlay { display:none;position:absolute;inset:0;background:rgba(0,0,0,0.92);z-index:11;flex-direction:column;padding:10px;gap:6px;overflow-y:auto; }
+#suggestions-overlay.visible { display:flex; }
+#suggestions-overlay h4 { font-size:13px;color:var(--text2);flex-shrink:0;margin-bottom:2px; }
+#suggestions-close { position:absolute;top:8px;right:10px;background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;z-index:12;line-height:1; }
+.sugg-item { display:flex;align-items:center;gap:8px;background:var(--bg3);border-radius:6px;padding:6px;flex-shrink:0; }
+.sugg-item img { width:80px;height:45px;object-fit:cover;border-radius:3px;flex-shrink:0; }
+.sugg-item span { flex:1;font-size:11px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3;color:var(--text); }
+.sugg-item .sugg-btns { display:flex;flex-direction:column;gap:4px;flex-shrink:0; }
+.sugg-item .sugg-btns button { background:#ff0000;border:none;color:#fff;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;white-space:nowrap; }
+.sugg-item .sugg-btns button.sugg-add { background:var(--bg4);color:var(--text); }
+#url-bar { display:flex;gap:8px; }
+#url-bar input { flex:1;padding:8px;border-radius:6px;border:1px solid var(--border);font-size:14px;background:var(--bg2);color:var(--text); }
+#url-bar button { padding:8px 14px;background:#ff0000;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap; }
+#reactions-bar { display:flex;gap:8px;justify-content:center;background:var(--bg2);border-radius:8px;padding:8px; }
+.reaction-btn { background:none;border:none;font-size:24px;cursor:pointer;border-radius:8px;padding:4px 10px;transition:transform 0.1s; }
+.reaction-btn:hover { transform:scale(1.3);background:var(--bg3); }
+.floating-reaction { position:fixed;font-size:32px;pointer-events:none;animation:floatUp 2.5s ease-out forwards;z-index:999; }
+@keyframes floatUp { 0%{opacity:1;transform:translateY(0) scale(1)} 100%{opacity:0;transform:translateY(-180px) scale(1.5)} }
+#playlist-box { background:var(--bg2);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px; }
+#playlist-box h3 { font-size:13px;color:var(--text2);margin-bottom:2px; }
+#playlist-items { display:flex;flex-direction:column;gap:4px;max-height:140px;overflow-y:auto; }
+.playlist-item { display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:6px;background:var(--bg3);cursor:pointer;font-size:12px; }
+.playlist-item:hover { background:var(--bg4); }
+.playlist-item.active { background:#ff0000;color:#fff; }
+.playlist-item span { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.playlist-item button { background:none;border:none;color:var(--text2);cursor:pointer;font-size:14px;padding:0 2px;flex-shrink:0; }
+#right { width:340px;flex-shrink:0;display:flex;flex-direction:column;gap:10px; }
+#room-info { font-size:13px;color:var(--text2);display:flex;justify-content:space-between;align-items:center;padding:4px 0; }
+#logout-btn { background:none;border:1px solid var(--border);color:var(--text2);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px; }
+#users-box { background:var(--bg2);border-radius:8px;padding:8px 10px; }
+#users-box h3 { font-size:12px;color:var(--text2);margin-bottom:6px; }
+#users-list { display:flex;flex-wrap:wrap;gap:6px; }
+.user-chip { display:flex;align-items:center;gap:5px;background:var(--bg3);border-radius:20px;padding:3px 10px 3px 5px;font-size:12px; }
+.user-avatar { width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:#000;flex-shrink:0; }
+#search-box { background:var(--bg2);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px; }
+#search-tabs { display:flex;gap:6px; }
+.search-tab { flex:1;background:var(--bg3);border:none;color:var(--text2);padding:6px;border-radius:6px;cursor:pointer;font-size:13px; }
+.search-tab.active { background:#ff0000;color:#fff; }
+#search-bar { display:flex;gap:6px; }
+#search-bar input { flex:1;padding:7px;border-radius:6px;border:1px solid var(--border);font-size:13px;background:var(--bg3);color:var(--text); }
+#search-bar button { padding:7px 12px;background:#ff0000;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px; }
+#search-results { display:none;flex-direction:column;gap:4px;max-height:300px;overflow-y:auto; }
+#search-results.open { display:flex; }
+.search-result { display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:var(--bg3);font-size:12px; }
+.search-result img { width:80px;height:45px;object-fit:cover;border-radius:3px;flex-shrink:0; }
+.search-result span { flex:1;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3; }
+.search-result .add-btn { background:#ff0000;border:none;color:#fff;border-radius:4px;padding:4px 9px;cursor:pointer;font-size:12px;flex-shrink:0; }
+.search-result .add-btn:disabled { background:var(--border);cursor:default; }
+#load-more-btn { display:none;width:100%;padding:8px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:6px;cursor:pointer;font-size:13px;margin-top:2px; }
+#chat-box { background:var(--bg2);border-radius:8px;padding:10px;overflow-y:auto;height:200px;display:flex;flex-direction:column;gap:6px;font-size:13px; }
+.chat-msg { word-break:break-word; }
+.chat-msg span { font-weight:bold; }
+.chat-msg.system { color:var(--text2);font-style:italic; }
+#chat-input { display:flex;gap:8px; }
+#chat-input input { flex:1;padding:8px;border-radius:6px;border:1px solid var(--border);font-size:13px;background:var(--bg2);color:var(--text); }
+#chat-input button { padding:8px 12px;background:#ff0000;color:#fff;border:none;border-radius:6px;cursor:pointer; }
+@media (max-width:768px) {
+  body { justify-content:flex-start;overflow-x:hidden; }
+  #app { flex-direction:column;padding:8px;gap:8px;padding-bottom:80px; }
+  #left,#right { width:100%; }
+  #player-wrapper { border-radius:0;margin:-8px -8px 0 -8px;width:calc(100% + 16px); }
+  #url-bar input,#search-bar input { font-size:16px;padding:10px; }
+  #url-bar button,#search-bar button { padding:10px 14px;font-size:15px; }
+  #reactions-bar { padding:10px;gap:4px; }
+  .reaction-btn { font-size:28px;padding:6px 10px;flex:1;text-align:center; }
+  #playlist-items { max-height:120px; }
+  #search-results { max-height:260px; }
+  #chat-box { height:160px;font-size:14px; }
+  #chat-input { position:fixed;bottom:0;left:0;right:0;padding:10px 12px;background:var(--chat-input-bg);border-top:1px solid var(--chat-input-border);z-index:100;gap:8px; }
+  #chat-input input { font-size:16px;padding:10px 12px;border-radius:24px;background:var(--bg3);color:var(--text);border:none; }
+  #chat-input button { padding:10px 16px;border-radius:24px;font-size:15px; }
+}
+</style>
+</head>
+<body>
+
+<div id="auth-screen" class="screen">
+  <h1>🎬 Watch Party</h1>
+  <div id="auth-error" class="error-msg"></div>
+  <input id="auth-username" placeholder="Username" />
+  <input id="auth-password" placeholder="Password" type="password" onkeydown="if(event.key==='Enter') submitAuth()" />
+  <button onclick="submitAuth()">Login</button>
+  <div class="link" onclick="toggleAuthMode()">No account? <span id="auth-toggle-text">Register here</span></div>
+</div>
+
+<div id="room-screen" class="screen" style="display:none;">
+  <h1>🎬 Watch Party</h1>
+  <p style="text-align:center;color:#aaa;font-size:13px;">Welcome, <span id="welcome-name" style="color:#fff"></span></p>
+  <input id="room-input" placeholder="Room name (create or join)" />
+  <button onclick="joinRoom()">Join Room</button>
+  <div class="link" onclick="logout()">← <span>Logout</span></div>
+</div>
+
+<div id="app">
+  <div id="left">
+    <div id="player-wrapper">
+      <div id="player"></div>
+      <div id="tap-overlay" onclick="unlockPlayer()"><span>▶ Tap to Join</span></div>
+      <div id="suggestions-overlay">
+        <button id="suggestions-close" onclick="hideSuggestions()">✕</button>
+        <h4>Up Next — Add to playlist or play now</h4>
+      </div>
+      <div id="yt-logo-block"></div>
+      <div id="yt-title-block"></div>
+    </div>
+    <div id="player-toolbar">
+      <span id="now-playing"></span>
+      <button id="sync-btn" onclick="syncPlayer()">⟳ Sync</button>
+    </div>
+    <div id="url-bar">
+      <input id="video-url" placeholder="Paste YouTube URL to load directly" />
+      <button onclick="changeVideo()">Load</button>
+    </div>
+    <div id="reactions-bar">
+      <button class="reaction-btn" onclick="sendReaction('👍')">👍</button>
+      <button class="reaction-btn" onclick="sendReaction('🔥')">🔥</button>
+      <button class="reaction-btn" onclick="sendReaction('😂')">😂</button>
+      <button class="reaction-btn" onclick="sendReaction('😮')">😮</button>
+      <button class="reaction-btn" onclick="sendReaction('❤️')">❤️</button>
+    </div>
+    <div id="playlist-box">
+      <h3>📋 Playlist</h3>
+      <div id="playlist-items"></div>
+    </div>
+  </div>
+  <div id="right">
+    <div id="room-info">
+      <span id="room-label"></span>
+      <div style="display:flex;gap:6px;">
+        <button id="theme-btn" onclick="toggleTheme()">☀️</button>
+        <button id="logout-btn" onclick="logout()">Logout</button>
+      </div>
+    </div>
+    <div id="users-box">
+      <h3>👥 Watching</h3>
+      <div id="users-list"></div>
+    </div>
+    <div id="search-box">
+      <div id="search-tabs">
+        <button class="search-tab active" onclick="switchTab('search')">🔍 Search</button>
+        <button class="search-tab" onclick="switchTab('trending')">🔥 Trending</button>
+      </div>
+      <div id="search-bar">
+        <input id="search-input" placeholder="Search YouTube..." onkeydown="if(event.key==='Enter') doSearch()" />
+        <button onclick="doSearch()">Go</button>
+      </div>
+      <div id="search-results"></div>
+      <button id="load-more-btn" onclick="loadMore()">Load More</button>
+    </div>
+    <div id="chat-wrapper">
+      <div id="chat-box"></div>
+      <button id="scroll-btn" onclick="scrollChatBottom()">↓</button>
+    </div>
+    <div id="chat-input">
+      <input id="msg-input" placeholder="Type a message..." maxlength="300" onkeydown="if(event.key==='Enter') sendChat()" />
+      <button onclick="sendChat()">Send</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+
+<script>
+// ── Config ──
+const SUPABASE_URL = 'https://vhccmzpgomomquglhsxr.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZoY2NtenBnb21vbXF1Z2xoc3hyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNTY1MDAsImV4cCI6MjEwMzgzMjUwMH0.kZJEqnAXfvC9Z2Bl6q8vYe3U52BB2uO0SwcDBvHic2Q';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── State ──
+let player, room, username, token, myColor = '#ff6666';
+let channel = null;
+let playerUnlocked = false;
+let pendingPlay = null, pendingPause = null;
+let syncUntil = 0, remoteAction = false;
+let cachedPlaylist = [], cachedIndex = -1;
+let isRegisterMode = false;
+let onlineUsers = {};
+let lastBroadcastTime = 0;
+let posTimer = null;
+
+function isSyncing() { return remoteAction || Date.now() < syncUntil; }
+function lockSync(ms = 1000) { syncUntil = Date.now() + ms; }
+function doRemote(fn) {
+  remoteAction = true;
+  fn();
+  setTimeout(() => { remoteAction = false; lastBroadcastTime = Date.now(); }, 1500);
+}
+
+// ── Toast ──
+function toast(msg, type = 'info', duration = 3000) {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, duration);
+}
+
+// ── Theme ──
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  document.getElementById('theme-btn').textContent = isLight ? '🌙' : '☀️';
+  localStorage.setItem('theme', isLight ? 'light' : 'dark');
+}
+if (localStorage.getItem('theme') === 'light') {
+  document.body.classList.add('light');
+  document.addEventListener('DOMContentLoaded', () => {
+    const b = document.getElementById('theme-btn');
+    if (b) b.textContent = '🌙';
+  });
+}
+
+// ── Auth ──
+function toggleAuthMode() {
+  isRegisterMode = !isRegisterMode;
+  document.querySelector('#auth-screen button').textContent = isRegisterMode ? 'Register' : 'Login';
+  document.getElementById('auth-toggle-text').textContent = isRegisterMode ? 'Login instead' : 'Register here';
+  document.getElementById('auth-error').textContent = '';
+}
+
+async function submitAuth() {
+  const u = document.getElementById('auth-username').value.trim();
+  const p = document.getElementById('auth-password').value.trim();
+  const errEl = document.getElementById('auth-error');
+  errEl.textContent = '';
+  if (!u || !p) return (errEl.textContent = 'Fill in all fields');
+  const endpoint = isRegisterMode ? '/api/register' : '/api/login';
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p })
+    });
+    const data = await res.json();
+    if (!res.ok) return (errEl.textContent = data.error);
+    token = data.token;
+    username = data.username;
+    localStorage.setItem('token', token);
+    localStorage.setItem('username', username);
+    showRoomScreen();
+  } catch { errEl.textContent = 'Server error, try again'; }
+}
+
+function showRoomScreen() {
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('room-screen').style.display = 'flex';
+  document.getElementById('welcome-name').textContent = username;
+  const savedRoom = sessionStorage.getItem('room');
+  if (savedRoom) { document.getElementById('room-input').value = savedRoom; joinRoom(); }
+}
+
+async function joinRoom() {
+  room = document.getElementById('room-input').value.trim();
+  if (!room) return toast('Enter a room name', 'error');
+  sessionStorage.setItem('room', room);
+  myColor = `hsl(${Math.abs(username.split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % 360}, 70%, 65%)`;
+  document.getElementById('room-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('room-label').textContent = `Room: ${room} | ${username}`;
+  document.title = `${room} — Watch Party`;
+  loadYTApi();
+  await loadChatHistory();
+  await loadRoomState();
+  subscribeRealtime();
+}
+
+function logout() {
+  if (channel) sb.removeChannel(channel);
+  localStorage.removeItem('token');
+  localStorage.removeItem('username');
+  sessionStorage.removeItem('room');
+  location.reload();
+}
+
+// Auto-login
+const savedToken = localStorage.getItem('token');
+const savedUsername = localStorage.getItem('username');
+if (savedToken && savedUsername) { token = savedToken; username = savedUsername; showRoomScreen(); }
+
+</script>
+
+<script>
+// ── Room State ──
+async function loadRoomState() {
+  try {
+    const res = await fetch(`/api/room/${encodeURIComponent(room)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+    const state = await res.json();
+    cachedPlaylist = state.playlist || [];
+    cachedIndex = state.currentIndex ?? -1;
+    renderPlaylist(cachedPlaylist, cachedIndex);
+    if (state.videoId) {
+      waitForPlayer(() => {
+        lockSync(2000);
+        doRemote(() => {
+          player.loadVideoById({ videoId: state.videoId, startSeconds: state.time || 0 });
+          if (!state.playing) setTimeout(() => doRemote(() => player.pauseVideo()), 1200);
+        });
+      });
+    }
+  } catch (e) { console.error('loadRoomState:', e); }
+}
+
+async function saveRoomState(videoId, time, playing, currentIndex) {
+  await fetch(`/api/room/${encodeURIComponent(room)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ videoId, time, playing, currentIndex })
+  });
+}
+
+// ── Supabase Realtime ──
+function subscribeRealtime() {
+  channel = sb.channel(`room:${room}`, {
+    config: {
+      broadcast: { ack: false, self: false },
+      presence: { key: username }
+    }
+  });
+
+  channel.on('broadcast', { event: 'play' }, ({ payload }) => {
+    if (remoteAction) return;
+    pendingPause = null;
+    lockSync(2500);
+    if (!playerUnlocked) { pendingPlay = { time: payload.time }; showTapOverlay('▶ Tap to Play'); }
+    else waitForPlayer(() => doRemote(() => { player.seekTo(payload.time, true); player.playVideo(); }));
+  });
+
+  channel.on('broadcast', { event: 'pause' }, ({ payload }) => {
+    if (remoteAction) return;
+    lockSync(2500);
+    pendingPause = payload.time;
+    const overlay = document.getElementById('tap-overlay');
+    overlay.innerHTML = `<span>⏸ Paused</span><small>by ${payload.username || 'someone'} — tap to sync</small>`;
+    overlay.classList.remove('hidden');
+    if (playerUnlocked) doRemote(() => { player.seekTo(payload.time, true); player.pauseVideo(); });
+  });
+
+  channel.on('broadcast', { event: 'seek' }, ({ payload }) => {
+    if (remoteAction) return;
+    lockSync(2500);
+    waitForPlayer(() => doRemote(() => player.seekTo(payload.time, true)));
+  });
+
+  channel.on('broadcast', { event: 'video-change' }, ({ payload }) => {
+    lockSync(2000);
+    waitForPlayer(() => doRemote(() => player.loadVideoById(payload.videoId)));
+  });
+
+  channel.on('broadcast', { event: 'chat' }, ({ payload }) => {
+    appendChat(payload.username, payload.message, payload.color);
+  });
+
+  channel.on('broadcast', { event: 'reaction' }, ({ payload }) => {
+    showFloatingReaction(payload.emoji);
+  });
+
+  channel.on('broadcast', { event: 'playlist-update' }, ({ payload }) => {
+    cachedPlaylist = payload.playlist;
+    cachedIndex = payload.currentIndex;
+    renderPlaylist(cachedPlaylist, cachedIndex);
+  });
+
+  channel.on('broadcast', { event: 'playlist-play' }, ({ payload }) => {
+    lockSync(2000);
+    cachedIndex = payload.index;
+    renderPlaylist(null, cachedIndex);
+    waitForPlayer(() => {
+      if (!playerUnlocked) { pendingPlay = { videoId: payload.videoId, time: 0 }; pendingPause = null; showTapOverlay('▶ Tap to Play'); }
+      else doRemote(() => player.loadVideoById({ videoId: payload.videoId, startSeconds: 0 }));
+    });
+  });
+
+  channel.on('broadcast', { event: 'sync-response' }, ({ payload }) => {
+    if (payload.target !== username) return;
+    waitForPlayer(() => {
+      lockSync(2000);
+      doRemote(() => {
+        player.loadVideoById({ videoId: payload.videoId, startSeconds: payload.time });
+        if (!payload.playing) setTimeout(() => doRemote(() => player.pauseVideo()), 800);
+      });
+    });
+    toast('Synced!', 'success', 1500);
+  });
+
+  channel.on('broadcast', { event: 'sync-request' }, ({ payload }) => {
+    if (!player || !player.getCurrentTime) return;
+    const time = player.getCurrentTime();
+    const playing = player.getPlayerState() === YT.PlayerState.PLAYING;
+    const videoId = cachedPlaylist[cachedIndex]?.videoId || '';
+    channel.send({ type: 'broadcast', event: 'sync-response', payload: { target: payload.from, videoId, time, playing } });
+  });
+
+  channel.on('presence', { event: 'sync' }, () => {
+    updateOnlineUsers();
+  });
+
+  channel.on('presence', { event: 'join' }, ({ newPresences }) => {
+    newPresences.forEach(u => {
+      if (u.username && u.username !== username) appendChat('System', `${u.username} joined the room`, null);
+    });
+    updateOnlineUsers();
+  });
+
+  channel.on('presence', { event: 'leave' }, ({ leftPresences }) => {
+    leftPresences.forEach(u => {
+      if (u.username && u.username !== username) appendChat('System', `${u.username} left the room`, null);
+    });
+    updateOnlineUsers();
+  });
+
+  channel.subscribe(async (status) => {
+    if (status === 'SUBSCRIBED') {
+      await channel.track({ username, color: myColor });
+      updateOnlineUsers();
+      toast('Connected to room', 'success', 2000);
+    } else if (status === 'CHANNEL_ERROR') {
+      toast('Realtime connection failed', 'error');
+    }
+  });
+}
+
+function updateOnlineUsers() {
+  const state = channel.presenceState();
+  onlineUsers = {};
+  Object.values(state).flat().forEach(u => {
+    if (u.username) onlineUsers[u.username] = u.color || '#aaa';
+  });
+  renderUsers();
+}
+
+function broadcast(event, payload) {
+  if (channel) channel.send({ type: 'broadcast', event, payload });
+}
+</script>
+
+<script>
+// ── YouTube Player ──
+function loadYTApi() {
+  if (window.YT && window.YT.Player) { initPlayer(); return; }
+  const tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+}
+window.onYouTubeIframeAPIReady = initPlayer;
+function initPlayer() {
+  player = new YT.Player('player', {
+    height: '100%', width: '100%', videoId: '',
+    playerVars: { controls: 1, rel: 0, iv_load_policy: 3, modestbranding: 1 },
+    events: { onStateChange: onPlayerStateChange }
+  });
+}
+
+function showTapOverlay(msg) {
+  const overlay = document.getElementById('tap-overlay');
+  overlay.innerHTML = `<span>${msg}</span>`;
+  overlay.classList.remove('hidden');
+}
+
+function unlockPlayer() {
+  playerUnlocked = true;
+  const overlay = document.getElementById('tap-overlay');
+  overlay.classList.add('hidden');
+  overlay.innerHTML = '';
+  if (pendingPause !== null) {
+    const t = pendingPause; pendingPause = null;
+    doRemote(() => { player.seekTo(t, true); player.pauseVideo(); });
+  } else if (pendingPlay !== null) {
+    const p = pendingPlay; pendingPlay = null;
+    lockSync(2000);
+    doRemote(() => {
+      if (p.videoId) player.loadVideoById({ videoId: p.videoId, startSeconds: p.time || 0 });
+      else { player.seekTo(p.time, true); player.playVideo(); }
+    });
+  }
+}
+
+function startPosSave() {
+  if (posTimer) return;
+  posTimer = setInterval(() => {
+    if (room && player && player.getCurrentTime) {
+      const t = player.getCurrentTime();
+      if (t > 0) localStorage.setItem(`pos_${room}`, t);
+    }
+  }, 5000);
+}
+function stopPosSave() { clearInterval(posTimer); posTimer = null; }
+
+function onPlayerStateChange(event) {
+  if (remoteAction) return;
+  const now = Date.now();
+  if (now - lastBroadcastTime < 300) return;
+  lastBroadcastTime = now;
+  const time = player.getCurrentTime();
+  if (event.data === YT.PlayerState.PLAYING) {
+    broadcast('play', { time });
+    hideSuggestions();
+    startPosSave();
+    saveRoomState(cachedPlaylist[cachedIndex]?.videoId || '', time, true, cachedIndex);
+  }
+  if (event.data === YT.PlayerState.PAUSED) {
+    broadcast('pause', { time, username });
+    stopPosSave();
+    saveRoomState(cachedPlaylist[cachedIndex]?.videoId || '', time, false, cachedIndex);
+  }
+  if (event.data === YT.PlayerState.ENDED) {
+    stopPosSave();
+    showSuggestions();
+    const next = cachedIndex + 1;
+    if (next < cachedPlaylist.length) skipTo(next);
+  }
+}
+
+function syncPlayer() {
+  broadcast('sync-request', { from: username });
+  toast('Syncing...', 'info', 1500);
+}
+
+// ── Chat ──
+async function loadChatHistory() {
+  try {
+    const res = await fetch(`/api/chat/${encodeURIComponent(room)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+    const msgs = await res.json();
+    msgs.forEach(m => appendChat(m.username, m.message, null));
+  } catch (e) { console.error('loadChatHistory:', e); }
+}
+
+async function sendChat() {
+  const input = document.getElementById('msg-input');
+  const message = input.value.trim();
+  if (!message) return;
+  input.value = '';
+  broadcast('chat', { username, message, color: myColor });
+  await fetch('/api/chat/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ room, message })
+  });
+}
+
+function appendChat(u, message, color) {
+  const box = document.getElementById('chat-box');
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  const div = document.createElement('div');
+  div.className = u === 'System' ? 'chat-msg system' : 'chat-msg';
+  if (u === 'System') {
+    div.textContent = message;
+  } else {
+    const nameSpan = document.createElement('span');
+    nameSpan.style.color = color || myColor;
+    nameSpan.textContent = u + ':';
+    div.appendChild(nameSpan);
+    div.append(' ' + message);
+  }
+  box.appendChild(div);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+  else document.getElementById('scroll-btn').classList.add('visible');
+}
+
+function scrollChatBottom() {
+  const box = document.getElementById('chat-box');
+  box.scrollTop = box.scrollHeight;
+  document.getElementById('scroll-btn').classList.remove('visible');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const box = document.getElementById('chat-box');
+  if (box) box.addEventListener('scroll', () => {
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    document.getElementById('scroll-btn').classList.toggle('visible', !atBottom);
+  });
+});
+
+// ── Users ──
+function renderUsers() {
+  const list = document.getElementById('users-list');
+  list.innerHTML = '';
+  Object.entries(onlineUsers).forEach(([uname, color]) => {
+    const chip = document.createElement('div'); chip.className = 'user-chip';
+    const avatar = document.createElement('div'); avatar.className = 'user-avatar';
+    avatar.style.background = color; avatar.textContent = uname[0].toUpperCase();
+    const name = document.createElement('span'); name.textContent = uname;
+    chip.appendChild(avatar); chip.appendChild(name); list.appendChild(chip);
+  });
+}
+
+// ── Reactions ──
+function sendReaction(emoji) { broadcast('reaction', { emoji }); }
+function showFloatingReaction(emoji) {
+  const el = document.createElement('div'); el.className = 'floating-reaction'; el.textContent = emoji;
+  const rect = document.getElementById('player-wrapper').getBoundingClientRect();
+  el.style.left = (rect.left + Math.random() * rect.width * 0.8) + 'px';
+  el.style.top = (rect.bottom - 40) + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2500);
+}
+
+// ── Video / Playlist ──
+function changeVideo() {
+  const input = document.getElementById('video-url').value.trim();
+  const videoId = extractVideoId(input);
+  if (!videoId) return toast('Invalid YouTube URL or ID', 'error');
+  waitForPlayer(() => player.loadVideoById(videoId));
+  broadcast('video-change', { videoId });
+  document.getElementById('video-url').value = '';
+  toast('Video loaded!', 'success');
+}
+
+async function addToPlaylist(videoId, title) {
+  await fetch(`/api/playlist/${encodeURIComponent(room)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action: 'add', videoId, title })
+  });
+  cachedPlaylist.push({ videoId, title });
+  const newIndex = cachedPlaylist.length === 1 ? 0 : cachedIndex;
+  if (cachedPlaylist.length === 1) {
+    cachedIndex = 0;
+    broadcast('playlist-play', { index: 0, videoId });
+  }
+  broadcast('playlist-update', { playlist: cachedPlaylist, currentIndex: newIndex });
+  renderPlaylist(cachedPlaylist, newIndex);
+  toast(`Added: ${title.slice(0, 40)}${title.length > 40 ? '...' : ''}`, 'success');
+}
+
+async function removeFromPlaylist(index) {
+  await fetch(`/api/playlist/${encodeURIComponent(room)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action: 'remove', index })
+  });
+  cachedPlaylist.splice(index, 1);
+  if (cachedIndex >= cachedPlaylist.length) cachedIndex = cachedPlaylist.length - 1;
+  broadcast('playlist-update', { playlist: cachedPlaylist, currentIndex: cachedIndex });
+  renderPlaylist(cachedPlaylist, cachedIndex);
+}
+
+function skipTo(index) {
+  if (!cachedPlaylist[index]) return;
+  cachedIndex = index;
+  const videoId = cachedPlaylist[index].videoId;
+  broadcast('playlist-play', { index, videoId });
+  waitForPlayer(() => doRemote(() => player.loadVideoById({ videoId, startSeconds: 0 })));
+  renderPlaylist(null, cachedIndex);
+  saveRoomState(videoId, 0, true, index);
+}
+
+function renderPlaylist(playlist, currentIndex) {
+  if (playlist !== null) cachedPlaylist = playlist;
+  if (currentIndex !== undefined) cachedIndex = currentIndex;
+  const container = document.getElementById('playlist-items');
+  container.innerHTML = '';
+  const np = document.getElementById('now-playing');
+  np.textContent = cachedPlaylist.length > 0 && cachedIndex >= 0
+    ? `▶ ${cachedIndex + 1}/${cachedPlaylist.length} — ${cachedPlaylist[cachedIndex]?.title || ''}`
+    : '';
+  document.querySelector('#playlist-box h3').textContent = cachedPlaylist.length > 0
+    ? `📋 Playlist (${cachedIndex >= 0 ? cachedIndex + 1 : 0}/${cachedPlaylist.length})`
+    : '📋 Playlist';
+  cachedPlaylist.forEach((item, i) => {
+    const div = document.createElement('div');
+    div.className = 'playlist-item' + (i === cachedIndex ? ' active' : '');
+    const span = document.createElement('span'); span.textContent = `${i + 1}. ${item.title || item.videoId}`;
+    const playBtn = document.createElement('button'); playBtn.textContent = '▶';
+    playBtn.onclick = (e) => { e.stopPropagation(); skipTo(i); };
+    const removeBtn = document.createElement('button'); removeBtn.textContent = '✕';
+    removeBtn.onclick = (e) => { e.stopPropagation(); removeFromPlaylist(i); };
+    div.onclick = () => skipTo(i);
+    div.appendChild(span); div.appendChild(playBtn); div.appendChild(removeBtn);
+    container.appendChild(div);
+  });
+}
+</script>
+
+<script>
+// ── Search / Trending ──
+let currentTab = 'search', nextPageToken = null, lastQuery = '';
+
+function switchTab(tab) {
+  currentTab = tab; nextPageToken = null;
+  document.querySelectorAll('.search-tab').forEach((b, i) => b.classList.toggle('active', (i === 0) === (tab === 'search')));
+  if (tab === 'trending') {
+    document.getElementById('search-bar').style.display = 'none';
+    loadTrending();
+  } else {
+    document.getElementById('search-bar').style.display = 'flex';
+    document.getElementById('search-results').innerHTML = '';
+    document.getElementById('search-results').classList.remove('open');
+    document.getElementById('load-more-btn').style.display = 'none';
+  }
+}
+
+function showSpinner() {
+  const c = document.getElementById('search-results');
+  c.innerHTML = '<div style="padding:12px;text-align:center"><span class="spinner"></span>Loading...</div>';
+  c.classList.add('open');
+}
+
+async function doSearch() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  lastQuery = q; nextPageToken = null;
+  document.getElementById('search-results').innerHTML = '';
+  showSpinner();
+  try {
+    const res = await fetch(`/api/yt/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || 'Search failed', 'error'); renderSearchResults([], false); return; }
+    nextPageToken = data.nextPageToken;
+    renderSearchResults(data.items, true, false);
+  } catch { toast('Search failed', 'error'); renderSearchResults([], false); }
+}
+
+async function loadTrending(append = false) {
+  if (!append) { document.getElementById('search-results').innerHTML = ''; showSpinner(); }
+  try {
+    const url = nextPageToken ? `/api/yt/trending?pageToken=${nextPageToken}` : '/api/yt/trending';
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || 'Failed', 'error'); renderSearchResults([], false); return; }
+    nextPageToken = data.nextPageToken;
+    renderSearchResults(data.items, true, append);
+  } catch { toast('Failed to load trending', 'error'); renderSearchResults([], false); }
+}
+
+async function loadMore() {
+  if (!nextPageToken) return;
+  const btn = document.getElementById('load-more-btn');
+  btn.textContent = 'Loading...'; btn.disabled = true;
+  if (currentTab === 'trending') {
+    await loadTrending(true);
+  } else {
+    try {
+      const res = await fetch(`/api/yt/search?q=${encodeURIComponent(lastQuery)}&pageToken=${nextPageToken}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (!res.ok) { toast(data.error || 'Load more failed', 'error'); return; }
+      nextPageToken = data.nextPageToken;
+      renderSearchResults(data.items, true, true);
+    } catch { toast('Load more failed', 'error'); }
+  }
+  btn.textContent = 'Load More'; btn.disabled = false;
+}
+
+function renderSearchResults(items, addable, append = false) {
+  const container = document.getElementById('search-results');
+  const loadMoreBtn = document.getElementById('load-more-btn');
+  if (!append) container.innerHTML = '';
+  container.classList.add('open');
+  if (!items.length && !append) {
+    container.innerHTML = '<div style="padding:10px;color:var(--text2);font-size:12px">No results found</div>';
+    loadMoreBtn.style.display = 'none';
+    return;
+  }
+  items.forEach(item => {
+    const div = document.createElement('div'); div.className = 'search-result';
+    if (item.thumbnail) { const img = document.createElement('img'); img.src = item.thumbnail; div.appendChild(img); }
+    const span = document.createElement('span'); span.textContent = item.title; div.appendChild(span);
+    if (addable && item.videoId) {
+      const btn = document.createElement('button'); btn.className = 'add-btn'; btn.textContent = '+ Add';
+      btn.onclick = (e) => { e.stopPropagation(); addToPlaylist(item.videoId, item.title); btn.textContent = '✓'; btn.disabled = true; };
+      div.appendChild(btn);
+    }
+    container.appendChild(div);
+  });
+  loadMoreBtn.style.display = nextPageToken ? 'block' : 'none';
+}
+
+// ── Suggestions ──
+async function showSuggestions() {
+  const overlay = document.getElementById('suggestions-overlay');
+  overlay.classList.add('visible');
+  Array.from(overlay.children).forEach(el => { if (!el.id && el.tagName !== 'H4') el.remove(); });
+  const q = cachedPlaylist[cachedIndex]?.title || 'trending music';
+  try {
+    const res = await fetch(`/api/yt/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    if (!res.ok || !data.items) return;
+    data.items.forEach(item => {
+      const div = document.createElement('div'); div.className = 'sugg-item';
+      const img = document.createElement('img'); img.src = item.thumbnail; div.appendChild(img);
+      const span = document.createElement('span'); span.textContent = item.title; div.appendChild(span);
+      const btns = document.createElement('div'); btns.className = 'sugg-btns';
+      const playBtn = document.createElement('button'); playBtn.textContent = '▶ Play';
+      playBtn.onclick = () => { addToPlaylist(item.videoId, item.title).then(() => skipTo(cachedPlaylist.length - 1)); hideSuggestions(); };
+      const addBtn = document.createElement('button'); addBtn.className = 'sugg-add'; addBtn.textContent = '+ Add';
+      addBtn.onclick = () => { addToPlaylist(item.videoId, item.title); addBtn.textContent = '✓'; addBtn.disabled = true; };
+      btns.appendChild(playBtn); btns.appendChild(addBtn); div.appendChild(btns);
+      overlay.appendChild(div);
+    });
+  } catch {}
+}
+function hideSuggestions() { document.getElementById('suggestions-overlay').classList.remove('visible'); }
+
+// ── Helpers ──
+function extractVideoId(input) {
+  const match = input.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : (input.length === 11 ? input : null);
+}
+function waitForPlayer(cb) {
+  if (player && player.loadVideoById) cb();
+  else setTimeout(() => waitForPlayer(cb), 200);
+}
+</script>
+</body>
+</html>

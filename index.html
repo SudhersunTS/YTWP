@@ -230,7 +230,7 @@ function lockSync(ms = 1000) { syncUntil = Date.now() + ms; }
 function doRemote(fn) {
   remoteAction = true;
   fn();
-  setTimeout(() => { remoteAction = false; lastBroadcastTime = Date.now(); }, 1500);
+  setTimeout(() => { remoteAction = false; lastBroadcastTime = Date.now(); }, 800);
 }
 
 // ── Toast ──
@@ -368,16 +368,14 @@ function subscribeRealtime() {
   });
 
   channel.on('broadcast', { event: 'play' }, ({ payload }) => {
-    if (remoteAction) return;
     pendingPause = null;
-    lockSync(2500);
+    lockSync(1500);
     if (!playerUnlocked) { pendingPlay = { time: payload.time }; showTapOverlay('▶ Tap to Play'); }
     else waitForPlayer(() => doRemote(() => { player.seekTo(payload.time, true); player.playVideo(); }));
   });
 
   channel.on('broadcast', { event: 'pause' }, ({ payload }) => {
-    if (remoteAction) return;
-    lockSync(2500);
+    lockSync(1500);
     pendingPause = payload.time;
     const overlay = document.getElementById('tap-overlay');
     overlay.innerHTML = `<span>⏸ Paused</span><small>by ${payload.username || 'someone'} — tap to sync</small>`;

@@ -20,7 +20,14 @@ module.exports = async (req, res) => {
     const { action, videoId, title, index } = req.body || {};
 
     if (action === 'add') {
-      const { data: existing } = await supabase.from('playlist').select('position').eq('room_name', room).order('position', { ascending: false }).limit(1);
+      if (!videoId || !title) return res.status(400).json({ error: 'Missing video details' });
+      const { data: existing, error: positionError } = await supabase
+        .from('playlist')
+        .select('position')
+        .eq('room_name', room)
+        .order('position', { ascending: false })
+        .limit(1);
+      if (positionError) return res.status(500).json({ error: 'Could not read playlist' });
       const position = existing?.length ? existing[0].position + 1 : 0;
       const { error } = await supabase
         .from('playlist')

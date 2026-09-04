@@ -762,24 +762,29 @@ function changeVideo() {
 }
 
 async function addToPlaylist(videoId, title) {
-  const res = await fetch(`/api/playlist/${encodeURIComponent(room)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-    body: JSON.stringify({ action: 'add', videoId, title })
-  });
-  if (!res.ok) {
+  try {
+    const res = await fetch(`/api/playlist/${encodeURIComponent(room)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ action: 'add', videoId, title })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      toast(data?.error || `Could not save playlist item (${res.status})`, 'error');
+      return false;
+    }
+    cachedPlaylist.push({ videoId, title });
+    const newIndex = cachedPlaylist.length === 1 ? 0 : cachedIndex;
+    broadcast('playlist-update', { playlist: cachedPlaylist, currentIndex: newIndex });
+    renderPlaylist(cachedPlaylist, newIndex);
+    toast(`Added: ${title.slice(0, 40)}${title.length > 40 ? '...' : ''}`, 'success');
+    if (cachedPlaylist.length === 1) skipTo(0);
+    return true;
+  } catch (e) {
+    console.error('addToPlaylist:', e);
     toast('Could not save playlist item', 'error');
-    return;
+    return false;
   }
-  cachedPlaylist.push({ videoId, title });
-  const newIndex = cachedPlaylist.length === 1 ? 0 : cachedIndex;
-  if (cachedPlaylist.length === 1) {
-    cachedIndex = 0;
-    broadcast('playlist-play', { index: 0, videoId });
-  }
-  broadcast('playlist-update', { playlist: cachedPlaylist, currentIndex: newIndex });
-  renderPlaylist(cachedPlaylist, newIndex);
-  toast(`Added: ${title.slice(0, 40)}${title.length > 40 ? '...' : ''}`, 'success');
 }
 
 async function removeFromPlaylist(index) {
@@ -934,9 +939,27 @@ function renderSearchResults(items, addable, append = false) {
     if (item.thumbnail) { const img = document.createElement('img'); img.src = item.thumbnail; div.appendChild(img); }
     const span = document.createElement('span'); span.textContent = item.title; div.appendChild(span);
     if (addable && item.videoId) {
-      const btn = document.createElement('button'); btn.className = 'add-btn'; btn.textContent = '+ Add';
-      btn.onclick = (e) => { e.stopPropagation(); addToPlaylist(item.videoId, item.title); btn.textContent = '✓'; btn.disabled = true; };
-      div.appendChild(btn);
+      const buttons = document.createElement('div');
+      buttons.style.cssText = 'display:flex;gap:4px;flex-shrink:0';
+      const playBtn = document.createElement('button');
+      playBtn.className = 'add-btn'; playBtn.textContent = '▶ Play';
+      playBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const added = await addToPlaylist(item.videoId, item.title);
+        if (added) {
+          skipTo(cachedPlaylist.length - 1);
+        }
+      };
+      const addBtn = document.createElement('button');
+      addBtn.className = 'add-btn'; addBtn.textContent = '+ Add';
+      addBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const added = await addToPlaylist(item.videoId, item.title);
+        if (added) { addBtn.textContent = '✓ Added'; addBtn.disabled = true; }
+      };
+      buttons.appendChild(playBtn);
+      buttons.appendChild(addBtn);
+      div.appendChild(buttons);
     }
     container.appendChild(div);
   });
@@ -959,7 +982,11 @@ async function showSuggestions() {
       const span = document.createElement('span'); span.textContent = item.title; div.appendChild(span);
       const btns = document.createElement('div'); btns.className = 'sugg-btns';
       const playBtn = document.createElement('button'); playBtn.textContent = '▶ Play';
-      playBtn.onclick = () => { addToPlaylist(item.videoId, item.title).then(() => skipTo(cachedPlaylist.length - 1)); hideSuggestions(); };
+      playBtn.onclick = async () => {
+        const added = await addToPlaylist(item.videoId, item.title);
+        if (added) skipTo(cachedPlaylist.length - 1);
+        hideSuggestions();
+      };
       const addBtn = document.createElement('button'); addBtn.className = 'sugg-add'; addBtn.textContent = '+ Add';
       addBtn.onclick = () => { addToPlaylist(item.videoId, item.title); addBtn.textContent = '✓'; addBtn.disabled = true; };
       btns.appendChild(playBtn); btns.appendChild(addBtn); div.appendChild(btns);

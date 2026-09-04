@@ -652,10 +652,14 @@ function syncPlayer() {
 // ── Chat ──
 async function loadChatHistory() {
   try {
+    document.getElementById('chat-box').innerHTML = '';
     const res = await fetch(`/api/chat/${encodeURIComponent(room)}`, {
       headers: { Authorization: 'Bearer ' + token }
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      toast('Could not load chat history', 'error');
+      return;
+    }
     const msgs = await res.json();
     msgs.forEach(m => appendChat(m.username, m.message, null));
   } catch (e) { console.error('loadChatHistory:', e); }
@@ -758,11 +762,15 @@ function changeVideo() {
 }
 
 async function addToPlaylist(videoId, title) {
-  await fetch(`/api/playlist/${encodeURIComponent(room)}`, {
+  const res = await fetch(`/api/playlist/${encodeURIComponent(room)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
     body: JSON.stringify({ action: 'add', videoId, title })
   });
+  if (!res.ok) {
+    toast('Could not save playlist item', 'error');
+    return;
+  }
   cachedPlaylist.push({ videoId, title });
   const newIndex = cachedPlaylist.length === 1 ? 0 : cachedIndex;
   if (cachedPlaylist.length === 1) {
@@ -775,11 +783,15 @@ async function addToPlaylist(videoId, title) {
 }
 
 async function removeFromPlaylist(index) {
-  await fetch(`/api/playlist/${encodeURIComponent(room)}`, {
+  const res = await fetch(`/api/playlist/${encodeURIComponent(room)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
     body: JSON.stringify({ action: 'remove', index })
   });
+  if (!res.ok) {
+    toast('Could not remove playlist item', 'error');
+    return;
+  }
   cachedPlaylist.splice(index, 1);
   if (cachedIndex >= cachedPlaylist.length) cachedIndex = cachedPlaylist.length - 1;
   broadcast('playlist-update', { playlist: cachedPlaylist, currentIndex: cachedIndex });

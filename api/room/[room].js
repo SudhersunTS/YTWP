@@ -20,10 +20,11 @@ module.exports = async (req, res) => {
 
   if (req.method === 'POST') {
     const { videoId, time, playing, currentIndex } = req.body || {};
-    await supabase.from('room_state').upsert(
+    const { error } = await supabase.from('room_state').upsert(
       { room_name: room, video_id: videoId, time, playing, current_index: currentIndex },
       { onConflict: 'room_name' }
     );
+    if (error) return res.status(500).json({ error: 'Could not save room state' });
     return res.json({ ok: true });
   }
 

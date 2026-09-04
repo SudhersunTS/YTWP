@@ -218,20 +218,15 @@ let player, room, username, token, myColor = '#ff6666';
 let channel = null;
 let playerUnlocked = false;
 let pendingPlay = null, pendingPause = null;
-let syncUntil = 0, remoteAction = false;
+let ignoreUntil = 0;
 let cachedPlaylist = [], cachedIndex = -1;
 let isRegisterMode = false;
 let onlineUsers = {};
-let lastBroadcastTime = 0;
 let posTimer = null;
 
-function isSyncing() { return remoteAction || Date.now() < syncUntil; }
-function lockSync(ms = 1000) { syncUntil = Date.now() + ms; }
-function doRemote(fn) {
-  remoteAction = true;
-  fn();
-  setTimeout(() => { remoteAction = false; lastBroadcastTime = Date.now(); }, 800);
-}
+function isIgnoring() { return Date.now() < ignoreUntil; }
+function ignore(ms = 1200) { ignoreUntil = Date.now() + ms; }
+function doRemote(fn) { ignore(1500); fn(); }
 
 // ── Toast ──
 function toast(msg, type = 'info', duration = 3000) {
@@ -340,10 +335,9 @@ async function loadRoomState() {
     renderPlaylist(cachedPlaylist, cachedIndex);
     if (state.videoId) {
       waitForPlayer(() => {
-        lockSync(2000);
         doRemote(() => {
           player.loadVideoById({ videoId: state.videoId, startSeconds: state.time || 0 });
-          if (!state.playing) setTimeout(() => doRemote(() => player.pauseVideo()), 1200);
+          if (!state.playing) setTimeout(() => { ignore(1000); player.pauseVideo(); }, 1200);
         });
       });
     }
@@ -369,35 +363,26 @@ function subscribeRealtime() {
 
   channel.on('broadcast', { event: 'play' }, ({ payload }) => {
     pendingPause = null;
-    lockSync(1500);
-    if (!playerUnlocked) { pendingPlay = { time: payload.time, videoId: payload.videoId }; showTapOverlay('▶ Tap to Play'); }
-    else waitForPlayer(() => doRemote(() => {
+    if (!playerUnlocked) { pendingPlay = { time: payload.time, videoId: payload.videoId }; showTapOverlay('▶ Tap to Play'); return; }
+    waitForPlayer(() => doRemote(() => {
       if (payload.videoId) player.loadVideoById({ videoId: payload.videoId, startSeconds: payload.time });
       else { player.seekTo(payload.time, true); player.playVideo(); }
     }));
   });
 
   channel.on('broadcast', { event: 'pause' }, ({ payload }) => {
-    lockSync(1500);
-    if (!playerUnlocked) { pendingPause = payload.time; pendingPlay = null; }
-    else {
-      remoteAction = true;
-      player.seekTo(payload.time, true);
-      player.pauseVideo();
-      setTimeout(() => { remoteAction = false; lastBroadcastTime = Date.now(); }, 2000);
-    }
+    if (!playerUnlocked) { pendingPause = payload.time; pendingPlay = null; return; }
+    doRemote(() => { player.seekTo(payload.time, true); player.pauseVideo(); });
   });
 
   channel.on('broadcast', { event: 'seek' }, ({ payload }) => {
-    if (remoteAction) return;
-    lockSync(2500);
-    waitForPlayer(() => doRemote(() => player.seekTo(payload.time, true)));
+    if (!playerUnlocked) return;
+    doRemote(() => player.seekTo(payload.time, true));
   });
 
   channel.on('broadcast', { event: 'video-change' }, ({ payload }) => {
-    lockSync(2000);
-    if (!playerUnlocked) { pendingPlay = { videoId: payload.videoId, time: 0 }; pendingPause = null; showTapOverlay('▶ Tap to Play'); }
-    else waitForPlayer(() => doRemote(() => player.loadVideoById(payload.videoId)));
+    if (!playerUnlocked) { pendingPlay = { videoId: payload.videoId, time: 0 }; pendingPause = null; showTapOverlay('▶ Tap to Play'); return; }
+    waitForPlayer(() => doRemote(() => player.loadVideoById(payload.videoId)));
   });
 
   channel.on('broadcast', { event: 'chat' }, ({ payload }) => {
@@ -415,22 +400,20 @@ function subscribeRealtime() {
   });
 
   channel.on('broadcast', { event: 'playlist-play' }, ({ payload }) => {
-    lockSync(2000);
     cachedIndex = payload.index;
     renderPlaylist(null, cachedIndex);
     waitForPlayer(() => {
-      if (!playerUnlocked) { pendingPlay = { videoId: payload.videoId, time: 0 }; pendingPause = null; showTapOverlay('▶ Tap to Play'); }
-      else doRemote(() => player.loadVideoById({ videoId: payload.videoId, startSeconds: 0 }));
+      if (!playerUnlocked) { pendingPlay = { videoId: payload.videoId, time: 0 }; pendingPause = null; showTapOverlay('▶ Tap to Play'); return; }
+      doRemote(() => player.loadVideoById({ videoId: payload.videoId, startSeconds: 0 }));
     });
   });
 
   channel.on('broadcast', { event: 'sync-response' }, ({ payload }) => {
     if (payload.target !== username) return;
     waitForPlayer(() => {
-      lockSync(2000);
       doRemote(() => {
         player.loadVideoById({ videoId: payload.videoId, startSeconds: payload.time });
-        if (!payload.playing) setTimeout(() => doRemote(() => player.pauseVideo()), 800);
+        if (!payload.playing) setTimeout(() => { ignore(1000); player.pauseVideo(); }, 1000);
       });
     });
     toast('Synced!', 'success', 1500);
@@ -500,7 +483,21 @@ function initPlayer() {
   player = new YT.Player('player', {
     height: '100%', width: '100%', videoId: '',
     playerVars: { controls: 1, rel: 0, iv_load_policy: 3, modestbranding: 1 },
-    events: { onStateChange: onPlayerStateChange }
+    events: {
+      onStateChange: onPlayerStateChange,
+      onReady: () => {
+        // Poll for seek: compare current time vs expected to detect manual scrub
+        let lastTime = 0;
+        setInterval(() => {
+          if (!player || !player.getCurrentTime) return;
+          const t = player.getCurrentTime();
+          if (Math.abs(t - lastTime) > 2 && player.getPlayerState() !== YT.PlayerState.PLAYING) {
+            onPlayerSeek();
+          }
+          lastTime = t;
+        }, 1000);
+      }
+    }
   });
 }
 
@@ -520,7 +517,6 @@ function unlockPlayer() {
     doRemote(() => { player.seekTo(t, true); player.pauseVideo(); });
   } else if (pendingPlay !== null) {
     const p = pendingPlay; pendingPlay = null;
-    lockSync(2000);
     doRemote(() => {
       if (p.videoId) player.loadVideoById({ videoId: p.videoId, startSeconds: p.time || 0 });
       else { player.seekTo(p.time, true); player.playVideo(); }
@@ -540,10 +536,7 @@ function startPosSave() {
 function stopPosSave() { clearInterval(posTimer); posTimer = null; }
 
 function onPlayerStateChange(event) {
-  if (remoteAction) return;
-  const now = Date.now();
-  if (now - lastBroadcastTime < 300) return;
-  lastBroadcastTime = now;
+  if (isIgnoring()) return;
   const time = player.getCurrentTime();
   if (event.data === YT.PlayerState.PLAYING) {
     const vid = cachedPlaylist[cachedIndex]?.videoId || '';
@@ -553,7 +546,7 @@ function onPlayerStateChange(event) {
     saveRoomState(vid, time, true, cachedIndex);
   }
   if (event.data === YT.PlayerState.PAUSED) {
-    broadcast('pause', { time, username });
+    broadcast('pause', { time });
     stopPosSave();
     saveRoomState(cachedPlaylist[cachedIndex]?.videoId || '', time, false, cachedIndex);
   }
@@ -657,8 +650,10 @@ function changeVideo() {
   const input = document.getElementById('video-url').value.trim();
   const videoId = extractVideoId(input);
   if (!videoId) return toast('Invalid YouTube URL or ID', 'error');
-  waitForPlayer(() => player.loadVideoById(videoId));
+  cachedIndex = -1;
+  waitForPlayer(() => doRemote(() => player.loadVideoById(videoId)));
   broadcast('video-change', { videoId });
+  saveRoomState(videoId, 0, true, -1);
   document.getElementById('video-url').value = '';
   toast('Video loaded!', 'success');
 }
@@ -700,6 +695,17 @@ function skipTo(index) {
   waitForPlayer(() => doRemote(() => player.loadVideoById({ videoId, startSeconds: 0 })));
   renderPlaylist(null, cachedIndex);
   saveRoomState(videoId, 0, true, index);
+}
+
+// Broadcast seek when user manually scrubs
+let seekDebounce = null;
+function onPlayerSeek() {
+  if (isIgnoring()) return;
+  clearTimeout(seekDebounce);
+  seekDebounce = setTimeout(() => {
+    if (!player || !player.getCurrentTime) return;
+    broadcast('seek', { time: player.getCurrentTime() });
+  }, 500);
 }
 
 function renderPlaylist(playlist, currentIndex) {

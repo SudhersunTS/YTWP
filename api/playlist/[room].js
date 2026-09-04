@@ -22,17 +22,28 @@ module.exports = async (req, res) => {
     if (action === 'add') {
       const { data: existing } = await supabase.from('playlist').select('position').eq('room_name', room).order('position', { ascending: false }).limit(1);
       const position = existing?.length ? existing[0].position + 1 : 0;
-      await supabase.from('playlist').insert({ room_name: room, video_id: videoId, title, position });
+      const { error } = await supabase
+        .from('playlist')
+        .insert({ room_name: room, video_id: videoId, title, position });
+      if (error) return res.status(500).json({ error: 'Could not save playlist item' });
       return res.json({ ok: true });
     }
 
     if (action === 'remove') {
       const { data: items } = await supabase.from('playlist').select('id, position').eq('room_name', room).order('position', { ascending: true });
       if (!items || !items[index]) return res.status(400).json({ error: 'Invalid index' });
-      await supabase.from('playlist').delete().eq('id', items[index].id);
+      const { error: deleteError } = await supabase
+        .from('playlist')
+        .delete()
+        .eq('id', items[index].id);
+      if (deleteError) return res.status(500).json({ error: 'Could not remove playlist item' });
       const remaining = items.filter((_, i) => i !== index);
       for (let i = 0; i < remaining.length; i++) {
-        await supabase.from('playlist').update({ position: i }).eq('id', remaining[i].id);
+        const { error: updateError } = await supabase
+          .from('playlist')
+          .update({ position: i })
+          .eq('id', remaining[i].id);
+        if (updateError) return res.status(500).json({ error: 'Could not reorder playlist' });
       }
       return res.json({ ok: true });
     }

@@ -27,12 +27,18 @@ module.exports = async (req, res) => {
         .eq('room_name', room)
         .order('position', { ascending: false })
         .limit(1);
-      if (positionError) return res.status(500).json({ error: 'Could not read playlist' });
+      if (positionError) {
+        console.error('playlist position lookup:', positionError);
+        return res.status(500).json({ error: `Could not read playlist: ${positionError.message}` });
+      }
       const position = existing?.length ? existing[0].position + 1 : 0;
       const { error } = await supabase
         .from('playlist')
         .insert({ room_name: room, video_id: videoId, title, position });
-      if (error) return res.status(500).json({ error: 'Could not save playlist item' });
+      if (error) {
+        console.error('playlist insert:', error);
+        return res.status(500).json({ error: `Could not save playlist item: ${error.message}` });
+      }
       return res.json({ ok: true });
     }
 

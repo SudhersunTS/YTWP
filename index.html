@@ -94,7 +94,7 @@ body { font-family:Arial,sans-serif;background:var(--bg);color:var(--text);min-h
 .search-result .add-btn:disabled { background:var(--border);cursor:default; }
 #load-more-btn { display:none;width:100%;padding:8px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:6px;cursor:pointer;font-size:13px;margin-top:2px; }
 #chat-box { background:var(--bg2);border-radius:8px;padding:10px;overflow-y:auto;height:200px;display:flex;flex-direction:column;gap:6px;font-size:13px; }
-.chat-msg { word-break:break-word; }
+.chat-msg { word-break:break-word;color:var(--text);line-height:1.35; }
 .chat-msg span { font-weight:bold; }
 .chat-msg.system { color:var(--text2);font-style:italic; }
 #chat-input { display:flex;gap:8px; }
@@ -661,12 +661,21 @@ async function sendChat() {
   const message = input.value.trim();
   if (!message) return;
   input.value = '';
+  appendChat(username, message, myColor);
+  const chatBox = document.getElementById('chat-box');
+  chatBox.scrollTop = chatBox.scrollHeight;
   broadcast('chat', { username, message, color: myColor });
-  await fetch('/api/chat/save', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-    body: JSON.stringify({ room, message })
-  });
+  try {
+    const res = await fetch('/api/chat/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ room, message })
+    });
+    if (!res.ok) toast('Message could not be saved', 'error');
+  } catch (e) {
+    console.error('sendChat:', e);
+    toast('Message could not be saved', 'error');
+  }
 }
 
 function appendChat(u, message, color) {

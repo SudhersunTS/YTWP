@@ -9,6 +9,9 @@ module.exports = async (req, res) => {
   if (!room || !message) return res.status(400).json({ error: 'Missing fields' });
   const trimmed = message.trim().slice(0, 300);
   if (!trimmed) return res.status(400).json({ error: 'Empty message' });
-  await supabase.from('chat_messages').insert({ room_name: room, username: user.username, message: trimmed });
+  const { error } = await supabase
+    .from('chat_messages')
+    .insert({ room_name: room, username: user.username, message: trimmed });
+  if (error) return res.status(500).json({ error: 'Could not save message' });
   res.json({ ok: true });
 };

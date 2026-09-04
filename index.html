@@ -331,7 +331,7 @@ if (savedToken && savedUsername) { token = savedToken; username = savedUsername;
 async function loadRoomState() {
   try {
     const res = await fetch(`/api/room/${encodeURIComponent(room)}`, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: 'Bearer ' + token }
     });
     if (!res.ok) return;
     const state = await res.json();
@@ -376,7 +376,7 @@ async function reconcileRoomState() {
   if (Date.now() - localStateChangedAt < 5000) return;
   try {
     const res = await fetch(`/api/room/${encodeURIComponent(room)}`, {
-      headers: { Authorization: `****** }
+      headers: { Authorization: 'Bearer ' + token }
     });
     if (!res.ok) return;
     const state = await res.json();
@@ -405,7 +405,7 @@ async function reconcileRoomState() {
 async function saveRoomState(videoId, time, playing, currentIndex) {
   await fetch(`/api/room/${encodeURIComponent(room)}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
     body: JSON.stringify({ videoId, time, playing, currentIndex })
   });
 }
@@ -648,7 +648,7 @@ function syncPlayer() {
 async function loadChatHistory() {
   try {
     const res = await fetch(`/api/chat/${encodeURIComponent(room)}`, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: 'Bearer ' + token }
     });
     if (!res.ok) return;
     const msgs = await res.json();
@@ -664,7 +664,7 @@ async function sendChat() {
   broadcast('chat', { username, message, color: myColor });
   await fetch('/api/chat/save', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
     body: JSON.stringify({ room, message })
   });
 }
@@ -743,7 +743,7 @@ function changeVideo() {
 async function addToPlaylist(videoId, title) {
   await fetch(`/api/playlist/${encodeURIComponent(room)}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
     body: JSON.stringify({ action: 'add', videoId, title })
   });
   cachedPlaylist.push({ videoId, title });
@@ -760,7 +760,7 @@ async function addToPlaylist(videoId, title) {
 async function removeFromPlaylist(index) {
   await fetch(`/api/playlist/${encodeURIComponent(room)}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
     body: JSON.stringify({ action: 'remove', index })
   });
   cachedPlaylist.splice(index, 1);
@@ -849,7 +849,7 @@ async function doSearch() {
   document.getElementById('search-results').innerHTML = '';
   showSpinner();
   try {
-    const res = await fetch(`/api/yt/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(`/api/yt/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: 'Bearer ' + token } });
     const data = await res.json();
     if (!res.ok) { toast(data.error || 'Search failed', 'error'); renderSearchResults([], false); return; }
     nextPageToken = data.nextPageToken;
@@ -861,7 +861,7 @@ async function loadTrending(append = false) {
   if (!append) { document.getElementById('search-results').innerHTML = ''; showSpinner(); }
   try {
     const url = nextPageToken ? `/api/yt/trending?pageToken=${nextPageToken}` : '/api/yt/trending';
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
     const data = await res.json();
     if (!res.ok) { toast(data.error || 'Failed', 'error'); renderSearchResults([], false); return; }
     nextPageToken = data.nextPageToken;
@@ -877,7 +877,7 @@ async function loadMore() {
     await loadTrending(true);
   } else {
     try {
-      const res = await fetch(`/api/yt/search?q=${encodeURIComponent(lastQuery)}&pageToken=${nextPageToken}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`/api/yt/search?q=${encodeURIComponent(lastQuery)}&pageToken=${nextPageToken}`, { headers: { Authorization: 'Bearer ' + token } });
       const data = await res.json();
       if (!res.ok) { toast(data.error || 'Load more failed', 'error'); return; }
       nextPageToken = data.nextPageToken;
@@ -918,7 +918,7 @@ async function showSuggestions() {
   Array.from(overlay.children).forEach(el => { if (!el.id && el.tagName !== 'H4') el.remove(); });
   const q = cachedPlaylist[cachedIndex]?.title || 'trending music';
   try {
-    const res = await fetch(`/api/yt/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(`/api/yt/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: 'Bearer ' + token } });
     const data = await res.json();
     if (!res.ok || !data.items) return;
     data.items.forEach(item => {

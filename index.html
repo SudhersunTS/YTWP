@@ -220,9 +220,12 @@ let playerUnlocked = false;
 let pendingPlay = null, pendingPause = null;
 let ignoreUntil = 0;
 let cachedPlaylist = [], cachedIndex = -1;
+let currentVideoId = '';
 let isRegisterMode = false;
 let onlineUsers = {};
 let posTimer = null;
+let stateSyncTimer = null;
+let localStateChangedAt = 0;
 
 function isIgnoring() { return Date.now() < ignoreUntil; }
 function ignore(ms = 1200) { ignoreUntil = Date.now() + ms; }
@@ -304,10 +307,12 @@ async function joinRoom() {
   await loadChatHistory();
   await loadRoomState();
   subscribeRealtime();
+  startStateSync();
 }
 
 function logout() {
   if (channel) sb.removeChannel(channel);
+  stopStateSync();
   localStorage.removeItem('token');
   localStorage.removeItem('username');
   sessionStorage.removeItem('room');
@@ -334,6 +339,7 @@ async function loadRoomState() {
     cachedIndex = state.currentIndex ?? -1;
     renderPlaylist(cachedPlaylist, cachedIndex);
     if (state.videoId) {
+      currentVideoId = state.videoId;
       waitForPlayer(() => {
         doRemote(() => {
           player.loadVideoById({ videoId: state.videoId, startSeconds: state.time || 0 });
@@ -342,6 +348,47 @@ async function loadRoomState() {
       });
     }
   } catch (e) { console.error('loadRoomState:', e); }
+}
+
+function startStateSync() {
+  stopStateSync();
+  stateSyncTimer = setInterval(reconcileRoomState, 3000);
+}
+
+function stopStateSync() {
+  clearInterval(stateSyncTimer);
+  stateSyncTimer = null;
+}
+
+async function reconcileRoomState() {
+  if (!room || !player || !player.getPlayerState) return;
+  if (Date.now() - localStateChangedAt < 5000) return;
+  try {
+    const res = await fetch(`/api/room/${encodeURIComponent(room)}`, {
+      headers: { Authorization: `****** }
+    });
+    if (!res.ok) return;
+    const state = await res.json();
+    if (!state.videoId || !playerUnlocked) return;
+
+    const localState = player.getPlayerState();
+    const localPlaying = localState === YT.PlayerState.PLAYING || localState === YT.PlayerState.BUFFERING;
+    const videoChanged = state.videoId !== currentVideoId;
+    const playbackChanged = state.playing !== localPlaying;
+    if (!videoChanged && !playbackChanged) return;
+
+    currentVideoId = state.videoId;
+    doRemote(() => {
+      if (videoChanged) {
+        player.loadVideoById({ videoId: state.videoId, startSeconds: state.time || 0 });
+        if (!state.playing) setTimeout(() => { ignore(1000); player.pauseVideo(); }, 1200);
+      } else {
+        player.seekTo(state.time || 0, true);
+        if (state.playing) player.playVideo();
+        else player.pauseVideo();
+      }
+    });
+  } catch (e) { console.error('reconcileRoomState:', e); }
 }
 
 async function saveRoomState(videoId, time, playing, currentIndex) {
@@ -365,7 +412,10 @@ function subscribeRealtime() {
     pendingPause = null;
     if (!playerUnlocked) { pendingPlay = { time: payload.time, videoId: payload.videoId }; showTapOverlay('▶ Tap to Play'); return; }
     waitForPlayer(() => doRemote(() => {
-      if (payload.videoId) player.loadVideoById({ videoId: payload.videoId, startSeconds: payload.time });
+      if (payload.videoId && payload.videoId !== currentVideoId) {
+        currentVideoId = payload.videoId;
+        player.loadVideoById({ videoId: payload.videoId, startSeconds: payload.time });
+      }
       else { player.seekTo(payload.time, true); player.playVideo(); }
     }));
   });
@@ -382,6 +432,7 @@ function subscribeRealtime() {
 
   channel.on('broadcast', { event: 'video-change' }, ({ payload }) => {
     if (!playerUnlocked) { pendingPlay = { videoId: payload.videoId, time: 0 }; pendingPause = null; showTapOverlay('▶ Tap to Play'); return; }
+    currentVideoId = payload.videoId;
     waitForPlayer(() => doRemote(() => player.loadVideoById(payload.videoId)));
   });
 
@@ -404,6 +455,7 @@ function subscribeRealtime() {
     renderPlaylist(null, cachedIndex);
     waitForPlayer(() => {
       if (!playerUnlocked) { pendingPlay = { videoId: payload.videoId, time: 0 }; pendingPause = null; showTapOverlay('▶ Tap to Play'); return; }
+      currentVideoId = payload.videoId;
       doRemote(() => player.loadVideoById({ videoId: payload.videoId, startSeconds: 0 }));
     });
   });
@@ -412,6 +464,7 @@ function subscribeRealtime() {
     if (payload.target !== username) return;
     waitForPlayer(() => {
       doRemote(() => {
+        currentVideoId = payload.videoId;
         player.loadVideoById({ videoId: payload.videoId, startSeconds: payload.time });
         if (!payload.playing) setTimeout(() => { ignore(1000); player.pauseVideo(); }, 1000);
       });
@@ -518,7 +571,10 @@ function unlockPlayer() {
   } else if (pendingPlay !== null) {
     const p = pendingPlay; pendingPlay = null;
     doRemote(() => {
-      if (p.videoId) player.loadVideoById({ videoId: p.videoId, startSeconds: p.time || 0 });
+      if (p.videoId) {
+        currentVideoId = p.videoId;
+        player.loadVideoById({ videoId: p.videoId, startSeconds: p.time || 0 });
+      }
       else { player.seekTo(p.time, true); player.playVideo(); }
     });
   }
@@ -537,9 +593,10 @@ function stopPosSave() { clearInterval(posTimer); posTimer = null; }
 
 function onPlayerStateChange(event) {
   if (isIgnoring()) return;
+  localStateChangedAt = Date.now();
   const time = player.getCurrentTime();
   if (event.data === YT.PlayerState.PLAYING) {
-    const vid = cachedPlaylist[cachedIndex]?.videoId || '';
+    const vid = currentVideoId || cachedPlaylist[cachedIndex]?.videoId || '';
     broadcast('play', { time, videoId: vid });
     hideSuggestions();
     startPosSave();
@@ -651,6 +708,7 @@ function changeVideo() {
   const videoId = extractVideoId(input);
   if (!videoId) return toast('Invalid YouTube URL or ID', 'error');
   cachedIndex = -1;
+  currentVideoId = videoId;
   waitForPlayer(() => doRemote(() => player.loadVideoById(videoId)));
   broadcast('video-change', { videoId });
   saveRoomState(videoId, 0, true, -1);
@@ -691,6 +749,7 @@ function skipTo(index) {
   if (!cachedPlaylist[index]) return;
   cachedIndex = index;
   const videoId = cachedPlaylist[index].videoId;
+  currentVideoId = videoId;
   broadcast('playlist-play', { index, videoId });
   waitForPlayer(() => doRemote(() => player.loadVideoById({ videoId, startSeconds: 0 })));
   renderPlaylist(null, cachedIndex);

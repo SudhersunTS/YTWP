@@ -769,15 +769,12 @@ async function addToPlaylist(videoId, title) {
       body: JSON.stringify({ action: 'add', videoId, title })
     });
     if (!res.ok) {
-      toast('Could not save playlist item', 'error');
+      const data = await res.json().catch(() => ({}));
+      toast(data.error || 'Could not save playlist item', 'error');
       return false;
     }
     cachedPlaylist.push({ videoId, title });
     const newIndex = cachedPlaylist.length === 1 ? 0 : cachedIndex;
-    if (cachedPlaylist.length === 1) {
-      cachedIndex = 0;
-      broadcast('playlist-play', { index: 0, videoId });
-    }
     broadcast('playlist-update', { playlist: cachedPlaylist, currentIndex: newIndex });
     renderPlaylist(cachedPlaylist, newIndex);
     toast(`Added: ${title.slice(0, 40)}${title.length > 40 ? '...' : ''}`, 'success');
@@ -949,7 +946,9 @@ function renderSearchResults(items, addable, append = false) {
       playBtn.onclick = async (e) => {
         e.stopPropagation();
         const added = await addToPlaylist(item.videoId, item.title);
-        if (added) skipTo(cachedPlaylist.length - 1);
+        if (added) {
+          skipTo(cachedPlaylist.length - 1);
+        }
       };
       const addBtn = document.createElement('button');
       addBtn.className = 'add-btn'; addBtn.textContent = '+ Add';
@@ -983,7 +982,11 @@ async function showSuggestions() {
       const span = document.createElement('span'); span.textContent = item.title; div.appendChild(span);
       const btns = document.createElement('div'); btns.className = 'sugg-btns';
       const playBtn = document.createElement('button'); playBtn.textContent = '▶ Play';
-      playBtn.onclick = () => { addToPlaylist(item.videoId, item.title).then(() => skipTo(cachedPlaylist.length - 1)); hideSuggestions(); };
+      playBtn.onclick = async () => {
+        const added = await addToPlaylist(item.videoId, item.title);
+        if (added) skipTo(cachedPlaylist.length - 1);
+        hideSuggestions();
+      };
       const addBtn = document.createElement('button'); addBtn.className = 'sugg-add'; addBtn.textContent = '+ Add';
       addBtn.onclick = () => { addToPlaylist(item.videoId, item.title); addBtn.textContent = '✓'; addBtn.disabled = true; };
       btns.appendChild(playBtn); btns.appendChild(addBtn); div.appendChild(btns);
